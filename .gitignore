@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# twice working files hold quotes from your own sessions; never commit them
+.twice/
+turns.jsonl
+labels.jsonl
+judgments.jsonl
+report.md
+report.json
+
+# OS
+.DS_Store
