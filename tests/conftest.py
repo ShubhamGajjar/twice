@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -138,6 +140,22 @@ def build_demo_root(root: Path) -> Path:
     sub.mkdir(parents=True)
     (sub / "agent-1.jsonl").write_text(SessionWriter("sub", "/work/webapp").human("subagent text").lines[0] + "\n")
     return root
+
+
+def make_repo(path: Path, files: dict[str, str], date: str = "2026-11-01T00:00:00Z") -> str:
+    """Create a git repo with one commit at `date`; returns the commit sha."""
+    path.mkdir(parents=True, exist_ok=True)
+    if not (path / ".git").exists():
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True)
+    for name, content in files.items():
+        target = path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    env = {**os.environ, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+    ident = ["-c", "user.name=test", "-c", "user.email=test@localhost", "-c", "commit.gpgsign=false"]
+    subprocess.run(["git", *ident, "add", "-A"], cwd=path, check=True)
+    subprocess.run(["git", *ident, "commit", "-q", "-m", f"commit at {date}"], cwd=path, check=True, env=env)
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, check=True, capture_output=True, text=True).stdout.strip()
 
 
 @pytest.fixture

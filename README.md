@@ -4,12 +4,11 @@
 
 You tell your agent "don't use em dashes", "run the tests before pushing", "stop editing the
 changelog by hand". A week later you're saying it again. `twice` reads your Claude Code session
-logs, finds the corrections you keep repeating, and measures how well it found them. Next, it
-will measure which rules in your `CLAUDE.md` actually stop the mistakes.
+logs, finds the corrections you keep repeating, and then tests whether a rule actually stops the
+mistake: it replays the original request with and without the rule, several times, and counts.
 
-> **Status: v0.1, early.** Mining, hand labeling, the Claude judge and scoring work today on
-> Claude Code logs. Replaying sessions to test rules is the next milestone. See the
-> [roadmap](#roadmap).
+> **Status: v0.2, early.** Mining, hand labeling, the Claude judge, scoring and replay work today
+> on Claude Code. See the [roadmap](#roadmap).
 
 ## Why
 
@@ -34,10 +33,16 @@ twice label    # hand-label about 40 messages (a few minutes)
 twice score    # measured precision and recall of the flags
 twice judge    # optional: Claude confirms each flag and writes the lesson as a rule
 twice report   # rebuild the report from saved results
+
+twice case new --lesson 1   # turn a lesson into a test case, then add a check to its JSON file
+twice doctor --probe        # confirm replays can deliver a CLAUDE.md rule (one short call)
+twice replay                # run each case with and without its rule
+twice results               # mistake rates, intervals and a verdict per rule
 ```
 
 Python 3.10+. Mining has no dependencies. `judge` needs the `llm` extra and an Anthropic API
-key (`ANTHROPIC_API_KEY`, or a profile from `ant auth login`).
+key (`ANTHROPIC_API_KEY`, or a profile from `ant auth login`). `replay` needs Claude Code
+installed and signed in.
 
 ## What it looks like
 
@@ -117,24 +122,82 @@ sessions, expect lower numbers and label more.
 
 A message is flagged at a score of 1.0 or more (`--threshold` changes this).
 
+## Testing a rule: replay
+
+A **case** turns one correction into a repeatable test. `twice case new --lesson N` fills in
+what the log knows: the request that led to the mistake, the repository, the last commit before
+that request, and the rule (Claude's or your wording, or `--rule`). You add the **checks** that
+decide whether the mistake happened again, because only you know what it looked like:
+
+| Check | Fires when |
+|---|---|
+| `diff_regex` | a line the agent added matches a regex (an em dash, a `console.log`) |
+| `output_regex` | something the agent said matches ("all tests pass") |
+| `changed_files` | the agent changed a file matching a glob (`tests/*`, `CHANGELOG.md`) |
+| `tool_call` | the agent called, or tried to call, a tool (`Bash` with `git push`) |
+| `command` | a command run in the copy afterwards fails (your test suite) |
+
+`twice replay` then runs each case in a fresh copy of the repository, once per **variant**:
+
+- `none`: your setup as it was, without the rule
+- `claude_md`: the rule added to the repository's `CLAUDE.md`
+- `system`: the rule appended to the system prompt
+
+Variants alternate within each trial, five trials each by default. `twice results` reports the
+mistake rate per variant with 95% intervals and a one-sided Fisher exact test against `none`.
+
+A real run on a toy repository with Haiku (4 sessions, $0.01, 20 seconds):
+
+```text
+no-em-dash
+  variant     mistakes   rate  95% CI      errors  verdict
+  none          0/2        0%  0-66%            0
+  claude_md     0/2        0%  0-66%            0  too few runs (need 3+ per variant)
+```
+
+The mistake never happened, even without the rule. That is a finding too: a rule can only
+earn its place if the mistake comes back without it.
+
+### What a replay can and can't isolate
+
+Each run is a headless Claude Code session with your user settings (hooks, plugins,
+permissions) left out, no MCP servers, auto memory off, sessions not saved (so replays never
+show up in `twice mine`), file tools only, web tools blocked, and git remotes removed from the
+copy. Copies are shared clones, so your repository is only read, and they are deleted afterwards.
+
+Two limits, found by probing Claude Code 2.1.332 directly:
+
+- **Your global `~/.claude/CLAUDE.md` loads in every run.** Only `--bare` skips it, and that
+  mode accepts an API key only. So `none` means "your setup without this rule", which is the
+  practical question.
+- **A project `CLAUDE.md` only loads in folders Claude Code trusts** (trust carries to
+  subfolders). Replay copies live in one folder, `~/.twice/replays` by default, that you trust
+  once. `twice doctor --probe` checks this with a real call.
+
+Replays start from a commit, so uncommitted work from the original moment is missing, and they
+send one prompt, so add earlier context to the case's prompt when the mistake depended on it.
+
 ## Privacy
 
 - Everything runs on your machine. Working files go to `~/.twice` (readable only by you), never
   into a repository.
 - Text is redacted before it is stored: API keys, tokens, private keys, email addresses and
   `password=` style values.
-- Only `twice judge` sends anything anywhere: each redacted message and a short note on what
-  the agent had just done, to the Anthropic API, after you confirm. It uses `claude-opus-5-5` at
-  low effort with server-side refusal fallbacks on. Change the model with `--model`.
+- `twice judge` sends each redacted message and a short note on what the agent had just done
+  to the Anthropic API, after you confirm. It uses `claude-opus-5-5` at low effort with
+  server-side refusal fallbacks on. Change the model with `--model`.
+- `twice replay` runs Claude Code on your account, after you confirm, with a spending cap per
+  run (`--max-budget-usd`, default $1). It sends what any Claude Code session would: the case's
+  prompt and the files the agent reads.
 
 ## Roadmap
 
 - [x] **v0.1:** mine Claude Code logs, flag corrections, group lessons, hand labels, measured
   precision and recall, a Claude judge validated against your labels
-- [ ] **Replay:** re-run a correction moment in an isolated git worktree, with and without a
-  rule, several times, and report how often the mistake comes back
-- [ ] **Verdicts:** keep, promote to a hook, or prune every rule, and show the token cost of
-  always-loaded rules
+- [x] **v0.2, replay:** turn a correction into a case, re-run it in an isolated copy with and
+  without the rule, several times, and report mistake rates with intervals and a significance test
+- [ ] **Verdicts:** keep, promote to a hook, or prune every rule; a `hook` variant; the token
+  cost of always-loaded rules; an LLM-judged check for mistakes a regex can't see
 - [ ] **More agents:** a Codex adapter first
 - [ ] **CI:** a GitHub Action that runs your suite on pull requests touching `CLAUDE.md`,
   `AGENTS.md` or skills

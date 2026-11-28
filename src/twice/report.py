@@ -62,6 +62,7 @@ def build_report(
             md.append(f"- First seen {lesson.first_seen[:10]}, last seen {lesson.last_seen[:10]}")
         for example in lesson.examples:
             md.append(f"  > {example}")
+        md.append(f"- Test it: `twice case new --lesson {i}`")
         md.append("")
     if signals:
         md += ["## What triggered the flags", "", "| Signal | Messages |", "|---|---|"]

@@ -34,14 +34,16 @@ The evidence says they should:
 1. **Mine** (v0.1): find the moments you corrected the agent.
 2. **Measure the miner** (v0.1): hand labels, precision and estimated recall with confidence
    intervals, and a Claude judge validated against the labels.
-3. **Build test cases** (next): for each repeated lesson, capture the situation: the repository
-   at the right commit (logs record `cwd`, `gitBranch` and `timestamp`), the conversation up to
-   the mistake, and a check for whether the mistake happened again. Prefer deterministic
-   checks (a regex, a script, a test) and fall back to an LLM judge with published agreement.
-4. **Replay** (next): run the agent headless (`claude -p`, later `codex exec`) in a throwaway
-   git worktree, with the rule absent, as a line in `CLAUDE.md`, as a skill, and as a hook.
-   Agents are not deterministic, so each variant runs several times and results come with
-   intervals.
+3. **Build test cases** (v0.2): for each repeated lesson, capture the situation: the repository
+   at the last commit before the original request (logs record `cwd`, `gitBranch` and
+   `timestamp`), the request itself, and checks for whether the mistake happened again.
+   Checks are deterministic (regex on the diff or the output, changed-file globs, tool calls
+   including denied ones, a shell command). An LLM-judged check comes later, with published
+   agreement.
+4. **Replay** (v0.2): run the agent headless (`claude -p`, later `codex exec`) in a throwaway
+   shared clone, with the rule absent, in `CLAUDE.md`, or in the system prompt. Skill and
+   hook variants come next. Agents are not deterministic, so variants alternate across
+   several trials, and results come with Wilson intervals and a one-sided Fisher exact test.
 5. **Verdicts:** keep (measurably helps), promote to a hook (prose isn't reliable enough),
    prune (never fires or changes nothing). Report the token cost of always-loaded rules.
 6. **Reruns:** on every model upgrade, and for any third-party skill bundle.
@@ -75,6 +77,31 @@ log file --adapter--> Session(events) --mine--> Turn(score, signals, context)
   uncertainty.
 - **Judge agreement:** accuracy, precision, recall and Cohen's kappa against hand labels,
   computed on the labeled sample (which over-represents flagged turns, and the report says so).
+
+## Replay isolation: what was measured
+
+A fair baseline needs the rule out of every channel except the one being tested. Claude Code
+2.1.332 was probed with marker strings planted in a project `CLAUDE.md`, a project skill and
+the user's global `~/.claude/CLAUDE.md`, with all tools disabled (`--tools ""`) so the model
+could only report what was loaded, not go and read files:
+
+| Mode | Project `CLAUDE.md` | Global `CLAUDE.md` |
+|---|---|---|
+| default, trusted folder | loaded | loaded |
+| default, untrusted folder | not loaded | loaded |
+| `--setting-sources project` | loaded (if trusted) | loaded |
+| `--restricted`, `--safe-mode` | not loaded | not loaded |
+| `--restricted` or `--safe-mode` with `--add-dir` | not loaded | not loaded |
+| `--append-system-prompt` (any mode) | n/a | n/a, but the appended text arrives |
+
+Trust carries from a trusted folder to its subfolders. `--bare` skips everything but accepts
+only an API key, so it can't be the default for subscription users.
+
+Hence the replay setup: `--setting-sources project` in a copy under a trusted folder, with no
+MCP servers, auto memory off, no session persistence, an allowlist of file tools, and web tools
+blocked. The global `CLAUDE.md` is the one thing that leaks into every variant, so the baseline
+is "your setup without this rule". An early probe that left tools enabled gave misleading
+answers because the model simply opened the files; probes must run with tools off.
 
 ## Privacy
 
