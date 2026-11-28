@@ -160,9 +160,15 @@ def format_scores(m: MinerMetrics, sweep: list[dict], agreement: dict | None) ->
     else:
         lo, hi = wilson(m.missed_unflagged, m.labeled_unflagged)
         lines.append(f"  unflagged that were corrections: {_pct(m.miss_rate)}  (95% CI {_pct(lo)}-{_pct(hi)}, {m.labeled_unflagged} labeled)")
-        lines.append(f"  recall:    {_pct(m.recall)}  (estimated)")
-        lines.append(f"  F1:        {_pct(m.f1)}")
-        lines.append(f"  estimated corrections in your sessions: {m.estimated_corrections:.0f}")
+        if m.precision is None:
+            lines.append("  recall:    needs labels on flagged messages too")
+        elif m.recall is None:
+            lines.append("  recall:    n/a (no corrections in the labeled sample yet)")
+        else:
+            lines.append(f"  recall:    {_pct(m.recall)}  (estimated)")
+            lines.append(f"  F1:        {_pct(m.f1)}")
+        if m.estimated_corrections is not None:
+            lines.append(f"  estimated corrections in your sessions: {m.estimated_corrections:.0f}")
     if sweep:
         lines += ["", "  threshold  precision  recall"]
         for row in sweep:

@@ -66,3 +66,18 @@ def test_judge_agreement_and_kappa():
     assert agreement["precision"] == 1.0 and agreement["recall"] == 0.5
     assert agreement["confusion"] == {"tp": 1, "fp": 0, "fn": 1, "tn": 1}
     assert judge_agreement(labels, {}) is None
+
+
+def test_format_with_only_unflagged_labels():
+    # Regression: labels that all fall on unflagged messages used to crash `twice score`.
+    m = miner_metrics(_turns(10, 10), _labels([("u1", False), ("u2", True)]), threshold=1.0)
+    text = format_scores(m, [], None)
+    assert "needs labels on flagged messages too" in text
+    assert "no labeled flagged messages yet" in text
+
+
+def test_format_with_no_corrections_found():
+    m = miner_metrics(_turns(10, 10), _labels([("f1", False), ("u1", False)]), threshold=1.0)
+    text = format_scores(m, [], None)
+    assert "no corrections in the labeled sample yet" in text
+    assert "estimated corrections in your sessions: 0" in text
